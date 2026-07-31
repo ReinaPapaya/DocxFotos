@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador DOCX con imágenes</title>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+        body { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; background: #f5f7fa; }
+        h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .card { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
+        .card h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 2px solid #eef2f6; padding-bottom: 0.5rem; }
+        label { display: block; font-weight: 600; margin-top: 0.8rem; margin-bottom: 0.2rem; font-size: 0.9rem; }
+        input[type="file"], input[type="text"], select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
+        .btn { background: #0066ff; color: white; border: none; padding: 0.6rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .btn:hover { background: #0052cc; }
+        .flex-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+        .image-list { list-style: none; padding: 0; margin: 0.5rem 0; }
+        .image-list li { display: flex; align-items: center; gap: 0.8rem; padding: 0.5rem; background: #fafbfc; border: 1px solid #e2e6eb; border-radius: 6px; margin-bottom: 0.3rem; cursor: grab; }
+        .image-list li.dragging { opacity: 0.4; }
+        .image-list li img { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; background: #eee; }
+        .image-list li .info { flex: 1; font-size: 0.9rem; }
+        .image-list li .info small { display: block; color: #666; }
+        .image-list li input[type="checkbox"] { width: 20px; height: 20px; }
+        .filter-badge { background: #eef2f6; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; }
+        .config-row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+        .config-row > div { flex: 1; min-width: 150px; }
+        #preview-container { max-height: 400px; overflow-y: auto; }
+        .hidden { display: none; }
+        .error { color: #cc0000; background: #ffe6e6; padding: 0.5rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<h1>📄 Ensamblador de DOCX</h1>
+
+<div class="grid-2">
+    <!-- Columna izquierda: carga y configuración -->
+    <div>
+        <div class="card">
+            <h2>1. Cargar semilla</h2>
+            <input type="file" id="semillaInput" accept=".docx">
+        </div>
+
+        <div class="card">
+            <h2>2. Cargar imágenes</h2>
+            <input type="file" id="imagenesInput" accept="image/*" multiple>
+            <div class="flex-row" style="margin-top: 0.5rem;">
+                <span>Filtro formato:</span>
+                <select id="filtroFormato">
+                    <option value="todos">Todos</option>
+                    <option value="png">PNG</option>
+                    <option value="jpg">JPG</option>
+                    <option value="webp">WEBP</option>
+                </select>
+                <span style="font-size:0.8rem; color:#666;" id="contadorImg">0 cargadas</span>
+            </div>
+            <div id="preview-container">
+                <ul class="image-list" id="imageList"></ul>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>3. Configuración de imagen</h2>
+            <div class="config-row">
+                <div>
+                    <label>Ancho</label>
+                    <div style="display:flex; gap:0.3rem;">
+                        <input type="number" id="ancho" value="80" style="width:60px;">
+                        <select id="unidadAncho">
+                            <option value="%">%</option>
+                            <option value="cm">cm</option>
+                        </select>
+                    </div>
+                    <label><input type="checkbox" id="mantenerProp" checked> Mantener proporción</label>
+                </div>
+                <div>
+                    <label>Modo ajuste</label>
+                    <select id="modoAjuste">
+                        <option value="flujo">Flujo continuo</option>
+                        <option value="una_por_pagina">Una por página</option>
+                    </select>
+                    <label>Espaciado (pt)</label>
+                    <input type="number" id="espaciado" value="12" style="width:60px;">
+                </div>
+                <div>
+                    <label>Alineación</label>
+                    <select id="alineacion">
+                        <option value="izquierda">Izquierda</option>
+                        <option value="centrado" selected>Centrado</option>
+                        <option value="derecha">Derecha</option>
+                    </select>
+                    <label>Fondo transparencias</label>
+                    <select id="fondo">
+                        <option value="transparente">Transparente</option>
+                        <option value="#FFFFFF">Blanco</option>
+                        <option value="#000000">Negro</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>4. Metadatos y destino</h2>
+            <div class="config-row">
+                <div>
+                    <label>Pie de foto</label>
+                    <select id="captionTipo">
+                        <option value="nombre_archivo">Nombre de archivo</option>
+                        <option value="secuencial">Número secuencial</option>
+                        <option value="personalizado">Personalizado (campo abajo)</option>
+                    </select>
+                    <div id="customCaptionArea" class="hidden">
+                        <label>Texto para cada imagen (separado por saltos de línea)</label>
+                        <textarea id="customCaptions" rows="3" placeholder="Escribe un caption por línea..."></textarea>
+                    </div>
+                    <label>Posición pie</label>
+                    <select id="piePosicion">
+                        <option value="abajo">Abajo</option>
+                        <option value="lateral">Lateral (derecha)</option>
+                    </select>
+                    <label><input type="checkbox" id="numeracion" checked> Numeración automática "Figura N"</label>
+                </div>
+                <div>
+                    <label>Marcador (bookmark) en semilla</label>
+                    <input type="text" id="bookmark" value="#INSERT_IMAGES#" placeholder="#INSERT_IMAGES#">
+                    <p style="font-size:0.75rem; color:#666;">El texto exacto que reemplazarás en tu plantilla</p>
+                    <label>Nombre archivo salida</label>
+                    <input type="text" id="nombreSalida" value="documento_generado.docx">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Columna derecha: acciones y generación -->
+    <div>
+        <div class="card" style="position: sticky; top: 1rem;">
+            <h2>5. Generar</h2>
+            <button class="btn" id="generarBtn" style="width:100%; padding:0.8rem;">🚀 Generar DOCX</button>
+            <div id="estado" style="margin-top:1rem;"></div>
+            <div id="errores" class="error hidden"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---- Estado global ----
+    let imageItems = []; // { id, file, name, type, size, dataUrl, incluido, caption }
+    let idCounter = 0;
+
+    // ---- DOM refs ----
+    const semillaInput = document.getElementById('semillaInput');
+    const imagenesInput = document.getElementById('imagenesInput');
+    const imageList = document.getElementById('imageList');
+    const contadorImg = document.getElementById('contadorImg');
+    const filtroFormato = document.getElementById('filtroFormato');
+    const generarBtn = document.getElementById('generarBtn');
+    const estado = document.getElementById('estado');
+    const erroresDiv = document.getElementById('errores');
+
+    // Config
+    const ancho = document.getElementById('ancho');
+    const unidadAncho = document.getElementById('unidadAncho');
+    const mantenerProp = document.getElementById('mantenerProp');
+    const modoAjuste = document.getElementById('modoAjuste');
+    const espaciado = document.getElementById('espaciado');
+    const alineacion = document.getElementById('alineacion');
+    const fondo = document.getElementById('fondo');
+    const captionTipo = document.getElementById('captionTipo');
+    const customCaptions = document.getElementById('customCaptions');
+    const customCaptionArea = document.getElementById('customCaptionArea');
+    const piePosicion = document.getElementById('piePosicion');
+    const numeracion = document.getElementById('numeracion');
+    const bookmark = document.getElementById('bookmark');
+    const nombreSalida = document.getElementById('nombreSalida');
+
+    // Mostrar/ocultar caption personalizado
+    captionTipo.addEventListener('change', () => {
+        customCaptionArea.classList.toggle('hidden', captionTipo.value !== 'personalizado');
+    });
+
+    // ---- Funciones de lista ----
+    function renderList() {
+        const filtro = filtroFormato.value;
+        let filtered = imageItems;
+        if (filtro !== 'todos') {
+            filtered = imageItems.filter(item => item.type.toLowerCase().includes(filtro));
+        }
+        imageList.innerHTML = '';
+        filtered.forEach((item, idx) => {
+            const li = document.createElement('li');
+            li.dataset.id = item.id;
+            li.innerHTML = `
+                <input type="checkbox" class="incluir-chk" ${item.incluido !== false ? 'checked' : ''}>
+                <img src="${item.dataUrl}" alt="${item.name}">
+                <div class="info">
+                    <strong>${item.name}</strong>
+                    <small>${(item.size/1024).toFixed(1)} KB · ${item.type}</small>
+                    ${captionTipo.value === 'personalizado' ? `<input type="text" class="caption-input" value="${item.caption || ''}" placeholder="Caption personalizado">` : ''}
+                </div>
+                <span class="filter-badge">${item.type.split('/')[1]}</span>
+            `;
+            imageList.appendChild(li);
+        });
+
+        // Actualizar contador
+        contadorImg.textContent = `${imageItems.length} cargadas (${filtered.length} visibles)`;
+
+        // Eventos checkboxes
+        document.querySelectorAll('.incluir-chk').forEach((chk, i) => {
+            const actualIdx = imageItems.findIndex(it => it.id === parseInt(chk.closest('li').dataset.id));
+            if (actualIdx === -1) return;
+            chk.addEventListener('change', () => {
+                imageItems[actualIdx].incluido = chk.checked;
+            });
+        });
+
+        // Eventos captions personalizados
+        document.querySelectorAll('.caption-input').forEach((inp, i) => {
+            const actualIdx = imageItems.findIndex(it => it.id === parseInt(inp.closest('li').dataset.id));
+            if (actualIdx === -1) return;
+            inp.addEventListener('input', () => {
+                imageItems[actualIdx].caption = inp.value;
+            });
+        });
+
+        // Inicializar Sortable
+        if (window.sortableInstance) window.sortableInstance.destroy();
+        window.sortableInstance = new Sortable(imageList, {
+            animation: 150,
+            onEnd: (evt) => {
+                // Reordenar imageItems según orden visual
+                const newOrder = [];
+                document.querySelectorAll('#imageList li').forEach(li => {
+                    const id = parseInt(li.dataset.id);
+                    const item = imageItems.find(it => it.id === id);
+                    if (item) newOrder.push(item);
+                });
+                // Reemplazar imageItems con nuevo orden
+                imageItems = newOrder;
+                renderList(); // Refresca para mantener sincronía
+            }
+        });
+    }
+
+    // ---- Carga de imágenes ----
+    imagenesInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        files.forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target.result;
+                const id = ++idCounter;
+                imageItems.push({
+                    id,
+                    file,
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    dataUrl,
+                    incluido: true,
+                    caption: file.name.split('.')[0]
+                });
+                renderList();
+            };
+            reader.readAsDataURL(file);
+        });
+        // Limpiar input para permitir recargar los mismos archivos
+        imagenesInput.value = '';
+    });
+
+    // Filtro
+    filtroFormato.addEventListener('change', renderList);
+
+    // ---- Generar ----
+    generarBtn.addEventListener('click', async () => {
+        estado.innerHTML = '⏳ Procesando...';
+        erroresDiv.classList.add('hidden');
+
+        // Validaciones
+        if (!semillaInput.files || semillaInput.files.length === 0) {
+            estado.innerHTML = '❌ Falta semilla .docx';
+            return;
+        }
+        const incluidas = imageItems.filter(it => it.incluido !== false);
+        if (incluidas.length === 0) {
+            estado.innerHTML = '❌ No hay imágenes incluidas';
+            return;
+        }
+
+        // Construir FormData
+        const formData = new FormData();
+        formData.append('semilla', semillaInput.files[0]);
+
+        // Añadir imágenes (solo las incluidas, en el orden actual)
+        const orderedKeys = [];
+        const finalItems = imageItems.filter(it => it.incluido !== false);
+        finalItems.forEach((item, idx) => {
+            const key = `img_${item.id}`;
+            formData.append('imagenes', item.file);
+            orderedKeys.push(key);
+        });
+
+        // Configuración
+        const config = {
+            ancho: parseFloat(ancho.value),
+            unidad_ancho: unidadAncho.value,
+            mantener_proporcion: mantenerProp.checked,
+            modo_ajuste: modoAjuste.value,
+            espaciado_pt: parseFloat(espaciado.value),
+            alineacion: alineacion.value,
+            fondo: fondo.value,
+            caption_tipo: captionTipo.value,
+            pie_posicion: piePosicion.value,
+            numeracion: numeracion.checked,
+            bookmark: bookmark.value.trim()
+        };
+        formData.append('config', JSON.stringify(config));
+        formData.append('orden', JSON.stringify(orderedKeys));
+        
+        // Incluidos (keys de los que están checkeados)
+        const incluidosKeys = imageItems.filter(it => it.incluido !== false).map(it => `img_${it.id}`);
+        formData.append('incluidos', JSON.stringify(incluidosKeys));
+
+        // Captions personalizados
+        if (captionTipo.value === 'personalizado') {
+            const captionsMap = {};
+            imageItems.forEach(it => {
+                captionsMap[`img_${it.id}`] = it.caption || it.name;
+            });
+            formData.append('captions_custom', JSON.stringify(captionsMap));
+        }
+
+        // Nombre salida
+        formData.append('nombre_salida', nombreSalida.value || 'documento_generado.docx');
+
+        // Envío
+        try {
+            const resp = await fetch('/generar', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error(errText || 'Error del servidor');
+            }
+
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = nombreSalida.value || 'documento_generado.docx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            estado.innerHTML = '✅ Descargado correctamente';
+        } catch (err) {
+            erroresDiv.classList.remove('hidden');
+            erroresDiv.textContent = 'Error: ' + err.message;
+            estado.innerHTML = '❌ Falló la generación';
+        }
+    });
+
+    // Inicial
+    renderList();
+</script>
+</body>
+</html>
